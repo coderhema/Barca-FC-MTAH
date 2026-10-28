@@ -1,0 +1,21 @@
+Third-party code
+================
+
+The following files are copied from the official challenge repository
+https://github.com/metrica-sports/more-than-a-hack-2027 (commit f8f2629), unmodified except for a
+three-line header comment naming their origin:
+
+  games.py
+  evaluation/possession_metrics.py
+  evaluation/validate_submission.py
+  starter/load_smart_tagging.py
+
+They are Copyright (c) 2026-2027 Metrica Sports and distributed under the MIT License, reproduced
+in full in LICENSE.
+
+Match data
+==========
+
+The match data (videos, tracking data, Smart Tagging, homography) is NOT included in this
+repository and is NOT covered by any licence here. It is licensed by the organisers for the
+competition only, under the terms accepted at enrolment. See the official DATA.md and RULES.md.

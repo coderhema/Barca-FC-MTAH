@@ -1,0 +1,33 @@
+# --- match data: licensed for the competition only, NEVER commit ---
+data/
+*.mp4
+*.mkv
+*.avi
+*_atd.xml
+*_atd.txt
+*_smart_tagging.xml
+*_homography.csv
+*.gzip
+*.pl3container
+*.zip
+
+# --- generated outputs (submission files, scorer output) ---
+*.csv
+evaluation/results/
+evaluation/reports/
+evaluation/scoreboard.csv
+
+# --- synthetic / local test data ---
+synthetic*/
+make_synth.py
+
+# --- environments and caches ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.idea/
+.vscode/
+.DS_Store
