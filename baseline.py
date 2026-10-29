@@ -38,7 +38,7 @@ from games import GAME, GAMES, require, source_frames, half_video_blocks  # noqa
 
 # Team name used for the default output file name, <TEAM_NAME>.csv.
 # TODO: replace with the team name every member registered with.
-TEAM_NAME = "TEAM_NAME"
+TEAM_NAME = "Vector"
 
 # ---------------- parameters (football priors, NOT tuned on ground truth) ----------------
 FPS = 25

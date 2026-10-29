@@ -67,7 +67,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # put the match data in ./data/tactical/ (see section 4)
 python baseline.py
-python evaluation/validate_submission.py TEAM_NAME.csv
+python evaluation/validate_submission.py Vector.csv
 ```
 
 On Windows, use `py -3.13 -m venv .venv` and `.venv\Scripts\activate` instead (see section 3).
@@ -208,10 +208,10 @@ export MTAH_DATA_DIR=/path/to/mtah2027
 
 ### 5.1 Set your team name
 
-Open `baseline.py` and change this line near the top to the team name **every member registered with**:
+The team name is set near the top of `baseline.py`. It must match the name **every member registered with**, which for us is "Vector":
 
 ```python
-TEAM_NAME = "TEAM_NAME"
+TEAM_NAME = "Vector"
 ```
 
 The organisers ask for the CSV to be named after the team (`<team_name>.csv`), and this is used as the
