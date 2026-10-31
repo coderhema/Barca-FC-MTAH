@@ -13,7 +13,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from possession.data import FPS, HALVES, N_FRAMES, PITCH, STEM  # noqa: E402
+from possession.data import FPS, HALVES, KICKOFFS, N_FRAMES, PITCH, STEM  # noqa: E402
 
 N_SLOTS = 22
 
@@ -25,9 +25,14 @@ def simulate(rng):
     tags = []
     pos = np.column_stack([rng.uniform(10, 95, N_SLOTS), rng.uniform(5, 63, N_SLOTS)])
 
-    for start, stop in HALVES:
+    for (start, stop), kick in zip(HALVES, KICKOFFS):
         t, state = start, "D"
         bxy = np.array([PITCH[0] / 2, PITCH[1] / 2])
+        if kick > start:  # graded but before the kickoff, as in the real second half: dead
+            players[start:kick, :, :2], players[start:kick, :, 2] = pos, 0.8
+            ball[start:kick] = bxy
+            labels[start:kick] = "D"
+            t, state = kick, ("H" if rng.random() < 0.5 else "A")
         while t < stop:
             if state == "D":
                 length = int(rng.uniform(5, 20) * FPS)

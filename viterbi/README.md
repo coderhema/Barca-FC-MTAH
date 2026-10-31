@@ -15,7 +15,7 @@ From the repository root:
 pip install -r viterbi/requirements.txt
 python viterbi/run.py --team Vector --shape             # -> viterbi/out/Vector.csv
 python evaluation/validate_submission.py viterbi/out/Vector.csv
-md5sum viterbi/out/Vector.csv                           # 95bd8d6c98e1336d41fa52a4a72f656a
+md5sum viterbi/out/Vector.csv                           # c6b27c75947357d87becd893bc5ebb30
 ```
 
 The run is deterministic and the file name does not affect the content. The first run parses the

@@ -20,6 +20,10 @@ STEM = "BAR-ATH_tactical"
 # them, never as labels.
 HALVES = ((11185, 90652), (110808, 190198))
 
+# Kickoff of each half in video frames. Published in FAQ.md: the first half is graded from its
+# kickoff, the second is graded from 110808 but kicks off at 113742, and the frames between are D.
+KICKOFFS = (11185, 113742)
+
 HOME, AWAY = 0, 1
 
 
