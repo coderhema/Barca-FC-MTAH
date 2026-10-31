@@ -37,6 +37,9 @@ W_BALL_FAST = 1.0
 W_PRE_RESTART = 2.0
 W_PRE_KICKOFF = 5.0
 W_SHAPE = 0.15
+MAX_FLIGHT = 3 * FPS        # frames; longest first flight of a restart (a long goal kick)
+
+TAG_TEAMS = {"barcelona": HOME, "atletic club": AWAY, "athletic club": AWAY}
 
 
 def moving_mean(x, window):
@@ -117,6 +120,35 @@ def tagging_dead_evidence(tags, speed, n):
         else:
             score[start:kick] += weight
             score[kick:kick + FPS] -= W_BALL_FAST
+    return score
+
+
+def restart_team_evidence(tags, speed, control, n):
+    """Team scores after a tagged restart: the taker has the ball until its first flight ends.
+
+    CHALLENGE.md: a restart has a clear possessor, and an aerial duel or touch without control is
+    not a change. So from the detected kick until the ball first slows below KICK_SPEED (at most
+    MAX_FLIGHT), the other team's proximity counts for the taker instead -- a defender standing
+    under a corner is not in control of it. Evidence is only moved, never added, so a false kick
+    detection inside a stoppage cannot outweigh the dead-ball evidence. Throw-ins are tagged N/A:
+    skipped.
+    """
+    score = np.zeros((n, 2))
+    fast = np.nan_to_num(speed, nan=0.0) > KICK_SPEED
+    for tag in tags:
+        if tag["code"] != "set pieces":
+            continue
+        team = TAG_TEAMS.get(tag["tags"].get("team", "").strip().lower())
+        if team is None:
+            continue
+        kick = restart_moment(speed, max(0, tag["start"]), min(n, tag["end"]))
+        if kick is None:
+            continue
+        slow = np.flatnonzero(~fast[kick:min(n, kick + MAX_FLIGHT)])
+        end = kick + (int(slow[0]) if len(slow) else MAX_FLIGHT)
+        end = max(end, kick + 1)
+        score[kick:end, team] += control[kick:end, 1 - team]
+        score[kick:end, 1 - team] -= control[kick:end, 1 - team]
     return score
 
 
@@ -234,6 +266,7 @@ def build_scores(atd, tags, halves, use_shape=False):
     team = control
     if use_shape:
         team = team + shape_evidence(players, teams, halves, control, n)
+    team = team + restart_team_evidence(tags, speed, control, n)
 
     scores = np.column_stack([team[:, HOME], team[:, AWAY], dead])
     signals = {"seen": seen, "interpolated": interpolated, "dist": dist, "calm": calm,

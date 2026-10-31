@@ -17,7 +17,7 @@ From the repository root:
 pip install -r haeys/requirements.txt
 python haeys/run.py --team Vector --shape             # -> haeys/out/Vector.csv
 python evaluation/validate_submission.py haeys/out/Vector.csv
-md5sum haeys/out/Vector.csv                           # c6b27c75947357d87becd893bc5ebb30
+md5sum haeys/out/Vector.csv                           # d43f442be2aecfce7940f4b9fd4cb9c2
 ```
 
 The run is deterministic and the file name does not affect the content. The first run parses the
@@ -32,6 +32,9 @@ ATD (~25 s) and caches it in `haeys/out/cache/`; later runs take a few seconds.
      partial weight on a ball interpolated across gaps of up to 2 s; faded out when play is calm
    - *dead*: ball beyond the lines, players' mean speed low, set-piece tags up to the detected
      restart kick, graded frames before each half's kickoff
+   - *restart*: after a set piece with a tagged team, while the ball is still on its first
+     flight, the other team's proximity counts for the taker (a defender under a corner is not
+     in control of it)
    - *shape* (`--shape`): logistic model on collective team shape, trained on algorithmic
      pseudo-labels from confident control frames, used only where control is silent
 3. **Decode** (`possession/decode.py`) — three-state Viterbi with switching costs, so a change
