@@ -1,4 +1,6 @@
-# viterbi/ — possession by evidence scoring + Viterbi decoding
+# Haeys — possession by evidence scoring + Viterbi decoding
+
+_Haeys is pronounced "eyes"._
 
 A second pipeline, next to `baseline.py`. Tracking + Smart Tagging in, `frame,label` possession
 CSV out. numpy only.
@@ -12,15 +14,15 @@ points; only the ATD `.txt`/`.xml` and the Smart Tagging `.xml` are read.
 From the repository root:
 
 ```bash
-pip install -r viterbi/requirements.txt
-python viterbi/run.py --team Vector --shape             # -> viterbi/out/Vector.csv
-python evaluation/validate_submission.py viterbi/out/Vector.csv
-md5sum viterbi/out/Vector.csv                           # c6b27c75947357d87becd893bc5ebb30
+pip install -r haeys/requirements.txt
+python haeys/run.py --team Vector --shape             # -> haeys/out/Vector.csv
+python evaluation/validate_submission.py haeys/out/Vector.csv
+md5sum haeys/out/Vector.csv                           # c6b27c75947357d87becd893bc5ebb30
 ```
 
 The run is deterministic and the file name does not affect the content. The first run parses the
-ATD (~25 s) and caches it in `viterbi/out/cache/`; later runs take a few seconds.
-`python viterbi/run.py --inspect` prints what the ATD export contains.
+ATD (~25 s) and caches it in `haeys/out/cache/`; later runs take a few seconds.
+`python haeys/run.py --inspect` prints what the ATD export contains.
 
 ## How it works
 
@@ -39,16 +41,16 @@ Every constant is either a football prior (metres, m/s, seconds) or measured fro
 data itself. None is fitted to the public ground truth, and no labels of any kind are used.
 
 `CONTROL_RADIUS` is one of the measured ones: the 95th percentile of the ball-to-carrier distance
-while a player and the ball move together for a second (`python viterbi/tools/measure_control_radius.py`).
+while a player and the ball move together for a second (`python haeys/tools/measure_control_radius.py`).
 
 ## Tests
 
 End to end on a synthetic bundle in the real file formats, with a known truth:
 
 ```bash
-python viterbi/tests/make_synthetic.py /tmp/fake
-MTAH_DATA_DIR=/tmp/fake python viterbi/run.py --team synthetic --out /tmp/fake/out
-python viterbi/tests/score.py /tmp/fake/truth.csv /tmp/fake/out/synthetic.csv
+python haeys/tests/make_synthetic.py /tmp/fake
+MTAH_DATA_DIR=/tmp/fake python haeys/run.py --team synthetic --out /tmp/fake/out
+python haeys/tests/score.py /tmp/fake/truth.csv /tmp/fake/out/synthetic.csv
 ```
 
 The match data and everything derived from it (`out/`, caches) are never committed.
