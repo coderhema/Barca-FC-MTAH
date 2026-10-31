@@ -79,7 +79,7 @@ def main():
     print("ball seen {:.1f}%, interpolated {:.1f}%".format(
         100 * signals["seen"].mean(), 100 * signals["interpolated"].mean()))
 
-    labels = decode(scores, data.HALVES, len(scores))
+    labels = decode(scores, data.HALVES, len(scores), kickoffs=data.KICKOFFS)
     check(labels, data.N_FRAMES)
     summary(labels)
     target = os.path.join(args.out, args.team + ".csv")

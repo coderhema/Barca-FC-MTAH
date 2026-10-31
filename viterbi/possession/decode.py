@@ -26,12 +26,16 @@ def transition_costs():
 
 
 def viterbi(scores, cost=None, start=D):
-    """Best state path maximising sum(score) - sum(transition cost). scores is (n, 3)."""
+    """Best state path maximising sum(score) - sum(transition cost). scores is (n, 3).
+
+    start fixes the state before the first frame; None leaves it free (the evidence decides).
+    """
     cost = transition_costs() if cost is None else cost
     n = len(scores)
     back = np.zeros((n, 3), dtype=np.int8)
-    value = np.full(3, -1e9)
-    value[start] = 0.0
+    value = np.zeros(3) if start is None else np.full(3, -1e9)
+    if start is not None:
+        value[start] = 0.0
     value = value + scores[0]
     for t in range(1, n):
         candidates = value[:, None] - cost          # [from, to]
@@ -44,9 +48,16 @@ def viterbi(scores, cost=None, start=D):
     return path
 
 
-def decode(scores, halves, n_frames):
-    """Labels for the whole video: X outside the graded halves, Viterbi inside each."""
+def decode(scores, halves, n_frames, kickoffs=None):
+    """Labels for the whole video: X outside the graded halves, Viterbi inside each.
+
+    With kickoffs, graded frames before a half's kickoff are D and decoding starts at the kickoff
+    with a free initial state: the kickoff frame is already live play.
+    """
     labels = np.full(n_frames, "X", dtype="<U1")
-    for start, stop in halves:
-        labels[start:stop] = LABELS[viterbi(scores[start:stop])]
+    for i, (start, stop) in enumerate(halves):
+        kick = start if kickoffs is None else min(max(start, kickoffs[i]), stop)
+        labels[start:kick] = "D"
+        first = D if kickoffs is None else None
+        labels[kick:stop] = LABELS[viterbi(scores[kick:stop], start=first)]
     return labels
