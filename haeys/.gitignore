@@ -1,0 +1,8 @@
+out/
+data/
+*.npz
+*.mp4
+__pycache__/
+.venv/
+*.csv
+*.zip
