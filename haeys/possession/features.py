@@ -6,8 +6,9 @@ opinion at all -- the ball is in flight, or missing -- and the decoder's switchi
 the last state through them, which is exactly the "possession stays with the last team that had
 it" rule in CHALLENGE.md.
 
-Every constant here is a football prior (metres, m/s, seconds), chosen before looking at any
-ground truth. None of them is fitted to the public five minutes.
+Every constant here is a football prior (metres, m/s, seconds) or measured on external open data.
+None is fitted, tuned or calibrated on the competition's tracking data, video or ground truth
+(Talent Arena rules clarification: parameters may only be tuned on external data).
 """
 
 import warnings
@@ -18,9 +19,10 @@ from .data import AWAY, FPS, HOME, PITCH
 
 # Params
 MAX_BALL_GAP = 2 * FPS      # interpolate the ball across gaps up to this many frames
-CONTROL_RADIUS = 2.5        # m; a player this close to the ball is treated as touching it.
-                            # 95th percentile of the ball-to-carrier distance in the ATD while a
-                            # player and the ball move together for 1 s (1.5 m covered only 84%)
+CONTROL_RADIUS = 2.0        # m; a player this close to the ball is treated as touching it.
+                            # 95th percentile (2.03 m) of the ball-to-carrier distance during clear
+                            # carries in SkillCorner open data (external, 2 matches, 10,321 frames):
+                            # tools/measure_control_radius_skillcorner.py. Same value as baseline.py.
 CONTROL_MARGIN = 2.0        # m; full confidence once the other team is this much further away
 INTERP_WEIGHT = 0.4         # control seen on an interpolated ball counts this much
 OUT_MARGIN = 0.5            # m beyond the line before the ball counts as out
