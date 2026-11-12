@@ -40,11 +40,22 @@ ATD (~25 s) and caches it in `haeys/out/cache/`; later runs take a few seconds.
 3. **Decode** (`possession/decode.py`) — three-state Viterbi with switching costs, so a change
    needs sustained evidence: no flicker, but short real possessions survive.
 
-Every constant is either a football prior (metres, m/s, seconds) or measured from the tracking
-data itself. None is fitted to the public ground truth, and no labels of any kind are used.
+Every constant is either a football prior (metres, m/s, seconds) or measured on **external open
+data**. None is fitted, tuned or calibrated on the competition's tracking data, its video or its
+ground truth, following Talent Arena's rules clarification (parameters may only be tuned on
+external data).
 
-`CONTROL_RADIUS` is one of the measured ones: the 95th percentile of the ball-to-carrier distance
-while a player and the ball move together for a second (`python haeys/tools/measure_control_radius.py`).
+`CONTROL_RADIUS` (2.0 m) is the measured one: the 95th percentile of the ball-to-carrier distance
+while a player and the ball move together for a second, measured on SkillCorner's public open data
+(<https://github.com/SkillCorner/opendata>, matches 1874553 and 1886347):
+
+```bash
+python haeys/tools/measure_control_radius_skillcorner.py /path/to/*_tracking_extrapolated.jsonl
+```
+
+An earlier version measured this value (2.5 m) on the competition tracking data; that tool has been
+removed. The public 5-minute ground truth is used only once, to report the final submission's score,
+never to choose between versions or settings.
 
 ## Tests
 
