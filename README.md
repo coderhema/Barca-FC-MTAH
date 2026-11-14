@@ -258,6 +258,25 @@ The script reads the 199,319-line tracking file once in plain Python, then does 
 Expect a few seconds to a couple of minutes depending on your computer. It needs a few hundred MB of
 free memory.
 
+### 5.5 Export diagnostics for visualization
+
+The prediction can optionally export evidence for a visualization tool such as Cavalry:
+
+```bash
+python baseline.py --out Vector.csv --diagnostics viz
+```
+
+This writes:
+
+- `viz/frames.csv`: one row per frame with the ball position, nearest home/away player,
+  distances, control evidence, dead-ball state and final label;
+- `viz/players.csv`: tracked player positions in long form (`frame`, `slot`, `team`, `x`, `y`,
+  `speed_m_s`).
+
+Coordinates are normalized pitch coordinates, matching the tracking data. Use `frame` or `time_s`
+as the animation timeline, draw the players and ball from these files, and use `label` to show the
+prediction. These files are diagnostics only; submit `Vector.csv`.
+
 ---
 
 ## 6. Validating the output

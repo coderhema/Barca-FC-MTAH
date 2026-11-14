@@ -4,6 +4,7 @@ Regenerate the submission (data unpacked into ./data, or MTAH_DATA_DIR set):
 
     python baseline.py                        # writes <TEAM_NAME>.csv
     python baseline.py --out other_name.csv   # or choose the output path
+    python baseline.py --diagnostics viz      # also writes Cavalry-friendly CSVs to viz/
 
 Method (all constants are football priors, fixed without reference to any ground truth):
 
@@ -133,6 +134,34 @@ def control_per_frame(px, py, bx, by, teams, pitch):
     return ctrl, nearest
 
 
+def nearest_details(px, py, bx, by, teams, pitch):
+    """Return nearest slot, distance and position for each team on every frame."""
+    L, W = pitch
+    dx = (px - bx[:, None]) * L
+    dy = (py - by[:, None]) * W
+    d = np.sqrt(dx * dx + dy * dy)
+    home_mask = teams == HOME
+    away_mask = teams == AWAY
+    home_d = np.where(home_mask[None, :] & np.isfinite(d), d, np.inf)
+    away_d = np.where(away_mask[None, :] & np.isfinite(d), d, np.inf)
+    home_slot = np.argmin(home_d, axis=1)
+    away_slot = np.argmin(away_d, axis=1)
+    home_distance = home_d[np.arange(len(d)), home_slot]
+    away_distance = away_d[np.arange(len(d)), away_slot]
+    home_valid = np.isfinite(home_distance)
+    away_valid = np.isfinite(away_distance)
+    home_slot = np.where(home_valid, home_slot, -1)
+    away_slot = np.where(away_valid, away_slot, -1)
+    home_distance = np.where(home_valid, home_distance, np.nan)
+    away_distance = np.where(away_valid, away_distance, np.nan)
+    home_x = np.where(home_valid, px[np.arange(len(px)), np.maximum(home_slot, 0)], np.nan)
+    home_y = np.where(home_valid, py[np.arange(len(py)), np.maximum(home_slot, 0)], np.nan)
+    away_x = np.where(away_valid, px[np.arange(len(px)), np.maximum(away_slot, 0)], np.nan)
+    away_y = np.where(away_valid, py[np.arange(len(py)), np.maximum(away_slot, 0)], np.nan)
+    return (home_slot, home_distance, home_x, home_y,
+            away_slot, away_distance, away_x, away_y)
+
+
 def dead_mask(px, py, ps, bx, by, set_pieces, n):
     L, W = GAMES[GAME]["pitch"]
     ball_seen = ~np.isnan(bx)
@@ -217,10 +246,62 @@ def merge_short(codes, min_len):
     return out
 
 
+def write_diagnostics(path, bx, by, dead, ctrl, nearest, labels, details):
+    """Write compact per-frame evidence for external visualization tools."""
+    import csv
+
+    folder = os.path.abspath(path)
+    os.makedirs(folder, exist_ok=True)
+    (home_slot, home_distance, home_x, home_y,
+     away_slot, away_distance, away_x, away_y) = details
+    frames_path = os.path.join(folder, "frames.csv")
+    players_path = os.path.join(folder, "players.csv")
+    with open(frames_path, "w", newline="\n") as fh:
+        writer = csv.writer(fh)
+        writer.writerow([
+            "frame", "time_s", "ball_x", "ball_y", "ball_tracked",
+            "nearest_home_slot", "nearest_home_distance_m", "nearest_home_x", "nearest_home_y",
+            "nearest_away_slot", "nearest_away_distance_m", "nearest_away_x", "nearest_away_y",
+            "control_team", "nearest_team", "dead_ball", "label",
+        ])
+        for i in range(len(labels)):
+            writer.writerow([
+                i, "{:.3f}".format(i / FPS),
+                bx[i], by[i], not np.isnan(bx[i]),
+                home_slot[i], home_distance[i], home_x[i], home_y[i],
+                away_slot[i], away_distance[i], away_x[i], away_y[i],
+                ctrl[i], nearest[i], bool(dead[i]), labels[i],
+            ])
+    print("wrote", frames_path)
+    return frames_path, players_path
+
+
+def write_player_diagnostics(path, px, py, ps, teams):
+    """Write tracked player positions in long form for Cavalry-style animation."""
+    import csv
+
+    players_path = os.path.join(os.path.abspath(path), "players.csv")
+    with open(players_path, "w", newline="\n") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["frame", "time_s", "slot", "team", "x", "y", "speed_m_s"])
+        for frame in range(px.shape[0]):
+            slots = np.flatnonzero(~np.isnan(px[frame]) & ~np.isnan(py[frame]))
+            for slot in slots:
+                writer.writerow([
+                    frame, "{:.3f}".format(frame / FPS), int(slot),
+                    "H" if teams[slot] == HOME else "A",
+                    px[frame, slot], py[frame, slot], ps[frame, slot],
+                ])
+    print("wrote", players_path)
+    return players_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Write the possession submission CSV.")
     parser.add_argument("--out", default=None,
                         help="output CSV path (default: <TEAM_NAME>.csv next to this script)")
+    parser.add_argument("--diagnostics", default=None, metavar="DIR",
+                        help="also export frames.csv and players.csv for visualization")
     args = parser.parse_args()
     n = source_frames("tactical", GAME)
     meta_path, raw_path = require(["atd_meta", "atd_raw"])
@@ -235,6 +316,7 @@ def main():
         sp_team[s:e] = t
 
     ctrl, nearest = control_per_frame(px, py, bx, by, teams, GAMES[GAME]["pitch"])
+    details = nearest_details(px, py, bx, by, teams, GAMES[GAME]["pitch"])
     dead = dead_mask(px, py, ps, bx, by, set_pieces, n)
 
     labels = np.full(n, "X", dtype="<U1")
@@ -254,6 +336,9 @@ def main():
         fh.writelines("{},{}\n".format(i, l) for i, l in enumerate(labels))
     vals, cnts = np.unique(labels, return_counts=True)
     print("wrote", path, dict(zip(vals.tolist(), cnts.tolist())))
+    if args.diagnostics:
+        write_diagnostics(args.diagnostics, bx, by, dead, ctrl, nearest, labels, details)
+        write_player_diagnostics(args.diagnostics, px, py, ps, teams)
     print("next: python evaluation/validate_submission.py", path)
 
 
