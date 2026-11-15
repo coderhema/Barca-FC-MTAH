@@ -13,6 +13,7 @@ data/
 
 # --- generated outputs (submission files, scorer output) ---
 *.csv
+Vector.csv
 evaluation/results/
 evaluation/reports/
 evaluation/scoreboard.csv
