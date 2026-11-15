@@ -19,12 +19,14 @@ from .data import AWAY, FPS, HOME, PITCH
 
 # Params
 MAX_BALL_GAP = 2 * FPS      # interpolate the ball across gaps up to this many frames
-CONTROL_RADIUS = 2.0        # m; a player this close to the ball is treated as touching it.
+CONTROL_RADIUS = 2.0        # m; full control weight within this distance of the ball.
                             # 95th percentile (2.03 m) of the ball-to-carrier distance during clear
                             # carries in SkillCorner open data (external, 2 matches, 10,321 frames):
                             # tools/measure_control_radius_skillcorner.py. Same value as baseline.py.
+CONTROL_SOFT = 1.0          # m; beyond CONTROL_RADIUS, control weight decays linearly over this span
 CONTROL_MARGIN = 2.0        # m; full confidence once the other team is this much further away
-INTERP_WEIGHT = 0.4         # control seen on an interpolated ball counts this much
+INTERP_WEIGHT = 0.4         # peak weight for control on an interpolated ball (at gap ends)
+INTERP_MID_WEIGHT = 0.15    # weight at the middle of a max-length gap (decays toward centre)
 OUT_MARGIN = 0.5            # m beyond the line before the ball counts as out
 CALM_SPEED = 1.6            # m/s mean player speed at which play starts to look stopped
 CALM_SCALE = 0.6            # m/s over which calmness ramps from 0 to 1
@@ -58,10 +60,15 @@ def moving_mean(x, window):
 
 
 def interpolate_ball(ball_xy, max_gap=MAX_BALL_GAP):
-    """(xy, interpolated mask). Linear fill of gaps no longer than max_gap with both ends seen."""
+    """(xy, interpolated mask, interp weight). Linear fill of gaps no longer than max_gap.
+
+    Weight is 1.0 on seen frames, and on interpolated frames decays from INTERP_WEIGHT at the
+    gap ends toward INTERP_MID_WEIGHT at the centre (longer gaps, lower mid-gap confidence).
+    """
     xy = ball_xy.copy()
     seen = ~np.isnan(xy[:, 0])
     filled = np.zeros(len(xy), dtype=bool)
+    weight = np.where(seen, 1.0, 0.0).astype(np.float64)
     idx = np.flatnonzero(seen)
     for a, b in zip(idx[:-1], idx[1:]):
         gap = b - a - 1
@@ -69,7 +76,14 @@ def interpolate_ball(ball_xy, max_gap=MAX_BALL_GAP):
             t = np.arange(1, gap + 1) / float(gap + 1)
             xy[a + 1:b] = xy[a] + t[:, None] * (xy[b] - xy[a])
             filled[a + 1:b] = True
-    return xy, filled
+            # Distance from nearest observed end, normalised to [0, 1] at gap centre.
+            dist_end = np.minimum(np.arange(1, gap + 1), np.arange(gap, 0, -1))
+            mid = (gap + 1) / 2.0
+            depth = dist_end / mid  # 0 at ends-adjacent, 1 at centre
+            # Scale mid weight by how long the gap is relative to max_gap.
+            mid_w = INTERP_WEIGHT - (INTERP_WEIGHT - INTERP_MID_WEIGHT) * (gap / float(max_gap))
+            weight[a + 1:b] = INTERP_WEIGHT - (INTERP_WEIGHT - mid_w) * depth
+    return xy, filled, weight
 
 
 def ball_speed(ball_xy):
@@ -89,14 +103,22 @@ def team_distances(players, teams, ball_xy):
 
 
 def control_evidence(dist, weight):
-    """(n, 2) per-team score: someone is on the ball and the other team is clearly not."""
+    """(n, 2) per-team score: someone is on the ball and the other team is clearly not.
+
+    Distance contribution is full within CONTROL_RADIUS, then decays linearly to 0 over
+    CONTROL_SOFT metres beyond it (smooth falloff instead of a hard cutoff).
+    """
     out = np.zeros_like(dist)
     for team in (HOME, AWAY):
         own, other = dist[:, team], dist[:, 1 - team]
-        close = own <= CONTROL_RADIUS
         with np.errstate(invalid="ignore"):
-            margin = np.clip((other - own) / CONTROL_MARGIN, 0.0, 1.0)
-        out[:, team] = np.where(close, margin * weight, 0.0)
+            # 1.0 inside radius, linear taper over CONTROL_SOFT, 0 beyond.
+            # inf-inf (no ball / no players) yields NaN -- treat as no evidence.
+            proximity = np.nan_to_num(
+                np.clip(1.0 - (own - CONTROL_RADIUS) / CONTROL_SOFT, 0.0, 1.0), nan=0.0)
+            margin = np.nan_to_num(
+                np.clip((other - own) / CONTROL_MARGIN, 0.0, 1.0), nan=0.0)
+        out[:, team] = proximity * margin * weight
     return out
 
 
@@ -241,7 +263,7 @@ def build_scores(atd, tags, halves, use_shape=False):
     n = len(raw_ball)
 
     seen = ~np.isnan(raw_ball[:, 0])
-    ball, interpolated = interpolate_ball(raw_ball)
+    ball, interpolated, ball_weight = interpolate_ball(raw_ball)
     speed = ball_speed(raw_ball)
     dist = team_distances(players, teams, ball)
 
@@ -250,10 +272,9 @@ def build_scores(atd, tags, halves, use_shape=False):
         player_speed = moving_mean(np.nanmean(players[..., 2], axis=1).astype(np.float64), SMOOTH)
     calm = np.clip((CALM_SPEED - np.nan_to_num(player_speed, nan=0.0)) / CALM_SCALE, -1.0, 1.0)
 
-    # On the ball: full weight on a seen ball, partial on an interpolated one, and fading out when
-    # play looks stopped -- a thrower holding the ball is not a possession yet, it is a dead ball.
-    weight = np.where(seen, W_CONTROL, np.where(interpolated, W_CONTROL * INTERP_WEIGHT, 0.0))
-    weight = weight * (1.0 - np.clip(calm, 0.0, 1.0))
+    # On the ball: full weight on a seen ball, gap-age-decayed weight on an interpolated one,
+    # and fading out when play looks stopped -- a thrower holding the ball is not a possession yet.
+    weight = W_CONTROL * ball_weight * (1.0 - np.clip(calm, 0.0, 1.0))
     control = control_evidence(dist, weight)
 
     known = seen | interpolated

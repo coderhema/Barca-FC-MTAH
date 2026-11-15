@@ -288,8 +288,8 @@ three-state Viterbi decoder (see `haeys/README.md` for details).
   `haeys` scored higher on both ranking metrics: macroF1 0.8353 vs baseline 0.7115, spellF1
   0.4970 vs baseline 0.4686.
 - On the complete gated match (199,319 frames), both pipelines produce format-valid output.
-  They agree on 87.49% of frames; haeys produces fewer, slightly longer possessions (293 vs 299,
-  mean 11.9 s vs 11.1 s).
+  haeys produces fewer, longer possessions after short-spell merge (255 vs baseline 299,
+  mean 13.8 s vs 11.1 s). Soft control decay and gap-age interpolation weights are football priors.
 - Caveat: the public 5-minute slice has only 17 possessions, so the score gap is **not**
   statistically significant (noise band ~0.35). The private full-match ground truth is unavailable,
   so haeys is a candidate — not a proven winner.
