@@ -258,24 +258,30 @@ The script reads the 199,319-line tracking file once in plain Python, then does 
 Expect a few seconds to a couple of minutes depending on your computer. It needs a few hundred MB of
 free memory.
 
-### 5.5 Export diagnostics for visualization
+### 5.5 Export diagnostics for visualization (Cavalry)
 
-The prediction can optionally export evidence for a visualization tool such as Cavalry:
+Both pipelines can export the same Cavalry-friendly CSVs under `viz/`:
 
 ```bash
+# candidate (haeys) — preferred for review
+python haeys/run.py --team Vector --shape --diagnostics viz
+
+# reference baseline
 python baseline.py --out Vector.csv --diagnostics viz
 ```
 
 This writes:
 
-- `viz/frames.csv`: one row per frame with the ball position, nearest home/away player,
-  distances, control evidence, dead-ball state and final label;
+- `viz/frames.csv`: one row per frame with ball position, nearest home/away player,
+  distances, control evidence, dead-ball state and final `label`. haeys also adds
+  `score_H` / `score_A` / `score_D` (Viterbi emission scores) for scrubbing evidence;
 - `viz/players.csv`: tracked player positions in long form (`frame`, `slot`, `team`, `x`, `y`,
   `speed_m_s`).
 
-Coordinates are normalized pitch coordinates, matching the tracking data. Use `frame` or `time_s`
-as the animation timeline, draw the players and ball from these files, and use `label` to show the
-prediction. These files are diagnostics only; submit `Vector.csv`.
+Coordinates are **normalised pitch coordinates** (0–1), matching the ATD export. Use `frame` or
+`time_s` as the Cavalry timeline, draw players from `players.csv` and the ball from `frames.csv`,
+colour by `label` (H/A/D/X). These files are diagnostics only (gitignored `*.csv`); submit
+`haeys/out/Vector.csv`.
 
 ### 5.6 Candidate submission pipeline: `haeys`
 
@@ -467,6 +473,7 @@ No. The official rules say those 5 minutes are for pipeline checking only, not t
 | `requirements.txt` | pinned dependencies | this repo |
 | `haeys/` | second possession pipeline: evidence scoring + Viterbi decode, writes `haeys/out/<team>.csv` | this repo |
 | `haeys/run.py` | CLI entry point: loads data, builds evidence, Viterbi-decodes, writes the CSV | this repo |
+| `haeys/possession/diagnostics.py` | Cavalry export: `viz/frames.csv` + `viz/players.csv` | this repo |
 | `haeys/possession/data.py` | loads ATD and Smart Tagging into metres / frames | this repo |
 | `haeys/possession/features.py` | per-frame H/A/D evidence scores (control, dead, restart, shape) | this repo |
 | `haeys/possession/decode.py` | three-state Viterbi decoder with switching costs | this repo |

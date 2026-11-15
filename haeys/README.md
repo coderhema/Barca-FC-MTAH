@@ -17,7 +17,7 @@ From the repository root:
 pip install -r haeys/requirements.txt
 python haeys/run.py --team Vector --shape             # -> haeys/out/Vector.csv
 python evaluation/validate_submission.py haeys/out/Vector.csv
-md5sum haeys/out/Vector.csv                           # d43f442be2aecfce7940f4b9fd4cb9c2
+python haeys/run.py --team Vector --shape --diagnostics viz   # Cavalry: viz/frames.csv + players.csv
 ```
 
 The run is deterministic and the file name does not affect the content. The first run parses the
