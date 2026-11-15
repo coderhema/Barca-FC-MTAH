@@ -28,8 +28,9 @@ ATD (~25 s) and caches it in `haeys/out/cache/`; later runs take a few seconds.
 
 1. **Load** (`possession/data.py`) — ATD to metres on the tactical timeline, Smart Tagging to frames.
 2. **Evidence** (`possession/features.py`) — per-frame scores for H, A and D:
-   - *control*: a player within 2.5 m of the ball with the other team clearly further away;
-     partial weight on a ball interpolated across gaps of up to 2 s; faded out when play is calm
+   - *control*: a player near the ball (full weight within 2.0 m, soft decay over the next 1.0 m)
+     with the other team clearly further away; gap-age-decayed weight on a ball interpolated
+     across gaps of up to 2 s; faded out when play is calm
    - *dead*: ball beyond the lines, players' mean speed low, set-piece tags up to the detected
      restart kick, graded frames before each half's kickoff
    - *restart*: after a set piece with a tagged team, while the ball is still on its first
@@ -38,7 +39,13 @@ ATD (~25 s) and caches it in `haeys/out/cache/`; later runs take a few seconds.
    - *shape* (`--shape`): logistic model on collective team shape, trained on algorithmic
      pseudo-labels from confident control frames, used only where control is silent
 3. **Decode** (`possession/decode.py`) — three-state Viterbi with switching costs, so a change
-   needs sustained evidence: no flicker, but short real possessions survive.
+   needs sustained evidence: no flicker, but short real possessions survive. After decoding,
+   H/A spells shorter than 2 s are merged into their neighbours (same idea as `baseline.py`'s
+   `merge_short`), because spellF1 punishes invented short possessions hard.
+
+Control evidence uses a soft distance falloff (full weight within 2.0 m, linear decay over the
+next 1.0 m) rather than a hard cutoff. Interpolated-ball control weight decays toward the gap
+centre and with gap length.
 
 Every constant is either a football prior (metres, m/s, seconds) or measured on **external open
 data**. None is fitted, tuned or calibrated on the competition's tracking data, its video or its
