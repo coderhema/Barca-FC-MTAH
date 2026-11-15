@@ -19,15 +19,20 @@ from .data import AWAY, FPS, HOME, PITCH
 
 # Params
 MAX_BALL_GAP = 2 * FPS      # interpolate the ball across gaps up to this many frames
-CONTROL_RADIUS = 2.0        # m; a player this close to the ball is treated as touching it.
+CONTROL_RADIUS = 2.0        # m; full control weight within this distance of the ball.
                             # 95th percentile (2.03 m) of the ball-to-carrier distance during clear
                             # carries in SkillCorner open data (external, 2 matches, 10,321 frames):
                             # tools/measure_control_radius_skillcorner.py. Same value as baseline.py.
+CONTROL_SOFT = 1.0          # m; beyond CONTROL_RADIUS, control weight decays linearly over this span
 CONTROL_MARGIN = 2.0        # m; full confidence once the other team is this much further away
-INTERP_WEIGHT = 0.4         # control seen on an interpolated ball counts this much
+INTERP_WEIGHT = 0.4         # peak weight for control on an interpolated ball (at gap ends)
+INTERP_MID_WEIGHT = 0.15    # weight at the middle of a max-length gap (decays toward centre)
 OUT_MARGIN = 0.5            # m beyond the line before the ball counts as out
 CALM_SPEED = 1.6            # m/s mean player speed at which play starts to look stopped
 CALM_SCALE = 0.6            # m/s over which calmness ramps from 0 to 1
+BALL_STILL_MS = 1.0         # m/s; ball slower than this (or missing) looks idle
+DEAD_MIN_S = 3.0            # s; a frozen stretch must last this long to count as dead
+                            # (football prior: stoppages are multi-second, same as baseline.py)
 KICK_SPEED = 6.0            # m/s ball speed that marks a restart being taken
 SMOOTH = FPS                # frames; window for the slow signals (player speed)
 
@@ -35,6 +40,8 @@ SMOOTH = FPS                # frames; window for the slow signals (player speed)
 W_CONTROL = 1.0
 W_OUT = 3.0
 W_CALM = 1.0
+W_FROZEN = 2.0              # sustained frozen stretch (players slow + ball idle)
+W_OUT_HOLD = 2.5            # after ball-out, keep dead while players stay slow
 W_BALL_FAST = 1.0
 W_PRE_RESTART = 2.0
 W_PRE_KICKOFF = 5.0
@@ -58,10 +65,15 @@ def moving_mean(x, window):
 
 
 def interpolate_ball(ball_xy, max_gap=MAX_BALL_GAP):
-    """(xy, interpolated mask). Linear fill of gaps no longer than max_gap with both ends seen."""
+    """(xy, interpolated mask, interp weight). Linear fill of gaps no longer than max_gap.
+
+    Weight is 1.0 on seen frames, and on interpolated frames decays from INTERP_WEIGHT at the
+    gap ends toward INTERP_MID_WEIGHT at the centre (longer gaps, lower mid-gap confidence).
+    """
     xy = ball_xy.copy()
     seen = ~np.isnan(xy[:, 0])
     filled = np.zeros(len(xy), dtype=bool)
+    weight = np.where(seen, 1.0, 0.0).astype(np.float64)
     idx = np.flatnonzero(seen)
     for a, b in zip(idx[:-1], idx[1:]):
         gap = b - a - 1
@@ -69,7 +81,14 @@ def interpolate_ball(ball_xy, max_gap=MAX_BALL_GAP):
             t = np.arange(1, gap + 1) / float(gap + 1)
             xy[a + 1:b] = xy[a] + t[:, None] * (xy[b] - xy[a])
             filled[a + 1:b] = True
-    return xy, filled
+            # Distance from nearest observed end, normalised to [0, 1] at gap centre.
+            dist_end = np.minimum(np.arange(1, gap + 1), np.arange(gap, 0, -1))
+            mid = (gap + 1) / 2.0
+            depth = dist_end / mid  # 0 at ends-adjacent, 1 at centre
+            # Scale mid weight by how long the gap is relative to max_gap.
+            mid_w = INTERP_WEIGHT - (INTERP_WEIGHT - INTERP_MID_WEIGHT) * (gap / float(max_gap))
+            weight[a + 1:b] = INTERP_WEIGHT - (INTERP_WEIGHT - mid_w) * depth
+    return xy, filled, weight
 
 
 def ball_speed(ball_xy):
@@ -89,14 +108,22 @@ def team_distances(players, teams, ball_xy):
 
 
 def control_evidence(dist, weight):
-    """(n, 2) per-team score: someone is on the ball and the other team is clearly not."""
+    """(n, 2) per-team score: someone is on the ball and the other team is clearly not.
+
+    Distance contribution is full within CONTROL_RADIUS, then decays linearly to 0 over
+    CONTROL_SOFT metres beyond it (smooth falloff instead of a hard cutoff).
+    """
     out = np.zeros_like(dist)
     for team in (HOME, AWAY):
         own, other = dist[:, team], dist[:, 1 - team]
-        close = own <= CONTROL_RADIUS
         with np.errstate(invalid="ignore"):
-            margin = np.clip((other - own) / CONTROL_MARGIN, 0.0, 1.0)
-        out[:, team] = np.where(close, margin * weight, 0.0)
+            # 1.0 inside radius, linear taper over CONTROL_SOFT, 0 beyond.
+            # inf-inf (no ball / no players) yields NaN -- treat as no evidence.
+            proximity = np.nan_to_num(
+                np.clip(1.0 - (own - CONTROL_RADIUS) / CONTROL_SOFT, 0.0, 1.0), nan=0.0)
+            margin = np.nan_to_num(
+                np.clip((other - own) / CONTROL_MARGIN, 0.0, 1.0), nan=0.0)
+        out[:, team] = proximity * margin * weight
     return out
 
 
@@ -105,6 +132,48 @@ def restart_moment(speed, start, stop):
     window = speed[start:stop]
     hits = np.flatnonzero(window > KICK_SPEED)
     return start + int(hits[0]) if len(hits) else None
+
+
+
+def run_lengths(mask):
+    """[(start, stop)] runs of True."""
+    edges = np.diff(np.concatenate(([0], mask.astype(np.int8), [0])))
+    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
+
+
+def frozen_dead_evidence(calm, speed, seen, n):
+    """Dead score on multi-second frozen stretches (slow players + idle/missing ball).
+
+    CHALLENGE.md: dead ball is when play has stopped. A brief calm blip is not a stoppage;
+    baseline.py requires DEAD_MIN_S of frozen game. Same prior here.
+    """
+    score = np.zeros(n)
+    slow = calm > 0.0
+    ball_idle = (~seen) | (np.nan_to_num(speed, nan=0.0) < BALL_STILL_MS)
+    frozen = slow & ball_idle
+    min_len = int(DEAD_MIN_S * FPS)
+    for a, b in run_lengths(frozen):
+        if b - a >= min_len:
+            score[a:b] += W_FROZEN * np.clip(calm[a:b], 0.0, 1.0)
+    return score
+
+
+def out_hold_dead_evidence(out, calm, n):
+    """After the ball is out, stay dead while players remain slow (throw-in/setup phase).
+
+    Football prior shared with baseline.py: once the ball has left the pitch the stoppage
+    continues through the slow regrouping, not only on the out frames themselves.
+    """
+    score = np.zeros(n)
+    slow = calm > 0.0
+    for a, b in run_lengths(out):
+        score[a:b] += W_OUT_HOLD
+        j = b
+        while j < n and slow[j]:
+            j += 1
+        if j > b:
+            score[b:j] += W_OUT_HOLD * np.clip(calm[b:j], 0.0, 1.0)
+    return score
 
 
 def tagging_dead_evidence(tags, speed, n):
@@ -241,7 +310,7 @@ def build_scores(atd, tags, halves, use_shape=False):
     n = len(raw_ball)
 
     seen = ~np.isnan(raw_ball[:, 0])
-    ball, interpolated = interpolate_ball(raw_ball)
+    ball, interpolated, ball_weight = interpolate_ball(raw_ball)
     speed = ball_speed(raw_ball)
     dist = team_distances(players, teams, ball)
 
@@ -250,10 +319,9 @@ def build_scores(atd, tags, halves, use_shape=False):
         player_speed = moving_mean(np.nanmean(players[..., 2], axis=1).astype(np.float64), SMOOTH)
     calm = np.clip((CALM_SPEED - np.nan_to_num(player_speed, nan=0.0)) / CALM_SCALE, -1.0, 1.0)
 
-    # On the ball: full weight on a seen ball, partial on an interpolated one, and fading out when
-    # play looks stopped -- a thrower holding the ball is not a possession yet, it is a dead ball.
-    weight = np.where(seen, W_CONTROL, np.where(interpolated, W_CONTROL * INTERP_WEIGHT, 0.0))
-    weight = weight * (1.0 - np.clip(calm, 0.0, 1.0))
+    # On the ball: full weight on a seen ball, gap-age-decayed weight on an interpolated one,
+    # and fading out when play looks stopped -- a thrower holding the ball is not a possession yet.
+    weight = W_CONTROL * ball_weight * (1.0 - np.clip(calm, 0.0, 1.0))
     control = control_evidence(dist, weight)
 
     known = seen | interpolated
@@ -262,6 +330,8 @@ def build_scores(atd, tags, halves, use_shape=False):
     fast = np.nan_to_num(speed, nan=0.0) > 3.0
 
     dead = (W_OUT * out + W_CALM * calm - W_BALL_FAST * fast
+            + frozen_dead_evidence(calm, speed, seen, n)
+            + out_hold_dead_evidence(out, calm, n)
             + tagging_dead_evidence(tags, speed, n)
             + pre_kickoff_evidence(tags, speed, halves, n))
 

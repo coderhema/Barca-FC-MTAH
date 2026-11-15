@@ -3,6 +3,7 @@
     python run.py                       # writes out/<team>.csv
     python run.py --shape               # also use the self-supervised team-shape model
     python run.py --inspect             # what the ATD export actually contains
+    python run.py --shape --diagnostics viz   # also write Cavalry-friendly CSVs
 
 Deterministic: the same data gives the same file, byte for byte.
 """
@@ -15,14 +16,15 @@ import numpy as np
 
 from possession import data
 from possession.decode import decode
+from possession.diagnostics import write_diagnostics
 from possession.features import build_scores
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def write_csv(path, labels):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as handle:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", newline="\n") as handle:
         handle.write("frame,label\n")
         handle.writelines("{},{}\n".format(i, label) for i, label in enumerate(labels))
 
@@ -66,6 +68,8 @@ def main():
     parser.add_argument("--out", default=os.path.join(HERE, "out"))
     parser.add_argument("--shape", action="store_true", help="add the team-shape model")
     parser.add_argument("--inspect", action="store_true")
+    parser.add_argument("--diagnostics", default=None, metavar="DIR",
+                        help="also export frames.csv and players.csv for Cavalry visualization")
     args = parser.parse_args()
 
     if args.inspect:
@@ -85,6 +89,17 @@ def main():
     target = os.path.join(args.out, args.team + ".csv")
     write_csv(target, labels)
     print("wrote", target)
+
+    if args.diagnostics:
+        # expose full Viterbi scores for the timeline scrubber
+        signals = dict(signals)
+        signals["score_H"] = scores[:, 0]
+        signals["score_A"] = scores[:, 1]
+        signals["score_D"] = scores[:, 2]
+        write_diagnostics(args.diagnostics, atd, signals, labels)
+        print("Cavalry: use frame/time_s as timeline, players.csv for dots, frames.csv for ball/label")
+
+    print("next: python evaluation/validate_submission.py", target)
 
 
 if __name__ == "__main__":
