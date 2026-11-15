@@ -14,7 +14,8 @@ H, A, D = 0, 1, 2
 LABELS = np.array(["H", "A", "D"])
 
 # Params -- costs in the same "frames of evidence" units as features.W_*.
-SWITCH_TEAM = 8.0     # H <-> A: about a third of a second of clean control by the new team
+SWITCH_TEAM = 12.0    # H <-> A: ~0.48 s of clean control — same prior as baseline.py
+                        # CONFIRM_FRAMES=12; CHALLENGE.md: a touch without control is not a change
 ENTER_DEAD = 30.0     # alive -> D: stoppages last seconds, a blip of calm is not one
 LEAVE_DEAD = 10.0     # D -> alive: restarts are sharp (a kick), so cheaper to leave
 
