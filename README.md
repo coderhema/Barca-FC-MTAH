@@ -258,24 +258,58 @@ The script reads the 199,319-line tracking file once in plain Python, then does 
 Expect a few seconds to a couple of minutes depending on your computer. It needs a few hundred MB of
 free memory.
 
-### 5.5 Export diagnostics for visualization
+### 5.5 Export diagnostics for visualization (Cavalry)
 
-The prediction can optionally export evidence for a visualization tool such as Cavalry:
+Both pipelines can export the same Cavalry-friendly CSVs under `viz/`:
 
 ```bash
+# candidate (haeys) — preferred for review
+python haeys/run.py --team Vector --shape --diagnostics viz
+
+# reference baseline
 python baseline.py --out Vector.csv --diagnostics viz
 ```
 
 This writes:
 
-- `viz/frames.csv`: one row per frame with the ball position, nearest home/away player,
-  distances, control evidence, dead-ball state and final label;
+- `viz/frames.csv`: one row per frame with ball position, nearest home/away player,
+  distances, control evidence, dead-ball state and final `label`. haeys also adds
+  `score_H` / `score_A` / `score_D` (Viterbi emission scores) for scrubbing evidence;
 - `viz/players.csv`: tracked player positions in long form (`frame`, `slot`, `team`, `x`, `y`,
   `speed_m_s`).
 
-Coordinates are normalized pitch coordinates, matching the tracking data. Use `frame` or `time_s`
-as the animation timeline, draw the players and ball from these files, and use `label` to show the
-prediction. These files are diagnostics only; submit `Vector.csv`.
+Coordinates are **normalised pitch coordinates** (0–1), matching the ATD export. Use `frame` or
+`time_s` as the Cavalry timeline, draw players from `players.csv` and the ball from `frames.csv`,
+colour by `label` (H/A/D/X). These files are diagnostics only (gitignored `*.csv`); submit
+`haeys/out/Vector.csv`.
+
+### 5.6 Candidate submission pipeline: `haeys`
+
+The `haeys` pipeline (`haeys/run.py`) is the **current candidate submission pipeline**.
+It is a second, independent possession model built on tracking geometry, Smart Tagging, and a
+three-state Viterbi decoder (see `haeys/README.md` for details).
+
+**Why haeys is the candidate:**
+- Official scorer on the **public 5-minute window only** (pipeline check — rules forbid
+  training/tuning on it): haeys spellF1 **0.5935** / macroF1 **0.8667** vs baseline
+  0.4686 / 0.7115, and above all four organiser baselines (best organiser spellF1 0.4242).
+  Bootstrap 5–95% spellF1 bands still overlap baseline; 17 GT possessions cannot rank anyone.
+- Complete gated match (format-valid): haeys 242 possessions, mean 14.2 s; baseline 299,
+  mean 11.1 s. Agreement ~87%. Dead-ball enrichment (frozen ≥3 s, out-then-slow hold),
+  soft control falloff, gap-age interp weights, min-spell merge, and SWITCH_TEAM=12
+  (same 0.48 s prior as baseline `CONFIRM_FRAMES`) are football priors / CHALLENGE.md logic —
+  not fit on public GT.
+- Private full-match ground truth is unavailable. Organisers' full-match baseline to beat is
+  spellF1 0.2433 (`baseline_smooth50`). haeys is the current **candidate**, not a proven winner.
+
+Run haeys:
+```bash
+pip install -r haeys/requirements.txt
+python haeys/run.py --team Vector --shape
+python evaluation/validate_submission.py haeys/out/Vector.csv
+```
+
+The Cavalry integration remains separate from this pipeline and affects visualization only.
 
 ### 5.6 Candidate submission pipeline: `haeys`
 
@@ -465,6 +499,7 @@ No. The official rules say those 5 minutes are for pipeline checking only, not t
 | `requirements.txt` | pinned dependencies | this repo |
 | `haeys/` | second possession pipeline: evidence scoring + Viterbi decode, writes `haeys/out/<team>.csv` | this repo |
 | `haeys/run.py` | CLI entry point: loads data, builds evidence, Viterbi-decodes, writes the CSV | this repo |
+| `haeys/possession/diagnostics.py` | Cavalry export: `viz/frames.csv` + `viz/players.csv` | this repo |
 | `haeys/possession/data.py` | loads ATD and Smart Tagging into metres / frames | this repo |
 | `haeys/possession/features.py` | per-frame H/A/D evidence scores (control, dead, restart, shape) | this repo |
 | `haeys/possession/decode.py` | three-state Viterbi decoder with switching costs | this repo |
