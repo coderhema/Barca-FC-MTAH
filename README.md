@@ -277,6 +277,32 @@ Coordinates are normalized pitch coordinates, matching the tracking data. Use `f
 as the animation timeline, draw the players and ball from these files, and use `label` to show the
 prediction. These files are diagnostics only; submit `Vector.csv`.
 
+### 5.6 Candidate submission pipeline: `haeys`
+
+The `haeys` pipeline (`haeys/run.py`) is the **current candidate submission pipeline**.
+It is a second, independent possession model built on tracking geometry, Smart Tagging, and a
+three-state Viterbi decoder (see `haeys/README.md` for details).
+
+**Why haeys is the candidate:**
+- On the official public 5-minute ground truth (first 5 minutes of play only, per organisers),
+  `haeys` scored higher on both ranking metrics: macroF1 0.8353 vs baseline 0.7115, spellF1
+  0.4970 vs baseline 0.4686.
+- On the complete gated match (199,319 frames), both pipelines produce format-valid output.
+  They agree on 87.49% of frames; haeys produces fewer, slightly longer possessions (293 vs 299,
+  mean 11.9 s vs 11.1 s).
+- Caveat: the public 5-minute slice has only 17 possessions, so the score gap is **not**
+  statistically significant (noise band ~0.35). The private full-match ground truth is unavailable,
+  so haeys is a candidate — not a proven winner.
+
+Run haeys:
+```bash
+pip install -r haeys/requirements.txt
+python haeys/run.py --team Vector --shape
+python evaluation/validate_submission.py haeys/out/Vector.csv
+```
+
+The Cavalry integration remains separate from this pipeline and affects visualization only.
+
 ---
 
 ## 6. Validating the output
@@ -437,6 +463,12 @@ No. The official rules say those 5 minutes are for pipeline checking only, not t
 | `evaluation/validate_submission.py` | official submission validator | Metrica Sports (MIT) |
 | `evaluation/possession_metrics.py` | metric and validation library used by the validator | Metrica Sports (MIT) |
 | `requirements.txt` | pinned dependencies | this repo |
+| `haeys/` | second possession pipeline: evidence scoring + Viterbi decode, writes `haeys/out/<team>.csv` | this repo |
+| `haeys/run.py` | CLI entry point: loads data, builds evidence, Viterbi-decodes, writes the CSV | this repo |
+| `haeys/possession/data.py` | loads ATD and Smart Tagging into metres / frames | this repo |
+| `haeys/possession/features.py` | per-frame H/A/D evidence scores (control, dead, restart, shape) | this repo |
+| `haeys/possession/decode.py` | three-state Viterbi decoder with switching costs | this repo |
+| `haeys/requirements.txt` | pinned dependencies (numpy==2.5.3) | this repo |
 | `.python-version` | Python version used (3.13.5) | this repo |
 | `.gitignore` | keeps data, outputs, venvs and caches out of git | this repo |
 | `LICENSE`, `NOTICE` | licences and third-party credits | – |
