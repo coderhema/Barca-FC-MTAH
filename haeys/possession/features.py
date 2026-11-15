@@ -30,6 +30,9 @@ INTERP_MID_WEIGHT = 0.15    # weight at the middle of a max-length gap (decays t
 OUT_MARGIN = 0.5            # m beyond the line before the ball counts as out
 CALM_SPEED = 1.6            # m/s mean player speed at which play starts to look stopped
 CALM_SCALE = 0.6            # m/s over which calmness ramps from 0 to 1
+BALL_STILL_MS = 1.0         # m/s; ball slower than this (or missing) looks idle
+DEAD_MIN_S = 3.0            # s; a frozen stretch must last this long to count as dead
+                            # (football prior: stoppages are multi-second, same as baseline.py)
 KICK_SPEED = 6.0            # m/s ball speed that marks a restart being taken
 SMOOTH = FPS                # frames; window for the slow signals (player speed)
 
@@ -37,6 +40,8 @@ SMOOTH = FPS                # frames; window for the slow signals (player speed)
 W_CONTROL = 1.0
 W_OUT = 3.0
 W_CALM = 1.0
+W_FROZEN = 2.0              # sustained frozen stretch (players slow + ball idle)
+W_OUT_HOLD = 2.5            # after ball-out, keep dead while players stay slow
 W_BALL_FAST = 1.0
 W_PRE_RESTART = 2.0
 W_PRE_KICKOFF = 5.0
@@ -127,6 +132,48 @@ def restart_moment(speed, start, stop):
     window = speed[start:stop]
     hits = np.flatnonzero(window > KICK_SPEED)
     return start + int(hits[0]) if len(hits) else None
+
+
+
+def run_lengths(mask):
+    """[(start, stop)] runs of True."""
+    edges = np.diff(np.concatenate(([0], mask.astype(np.int8), [0])))
+    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
+
+
+def frozen_dead_evidence(calm, speed, seen, n):
+    """Dead score on multi-second frozen stretches (slow players + idle/missing ball).
+
+    CHALLENGE.md: dead ball is when play has stopped. A brief calm blip is not a stoppage;
+    baseline.py requires DEAD_MIN_S of frozen game. Same prior here.
+    """
+    score = np.zeros(n)
+    slow = calm > 0.0
+    ball_idle = (~seen) | (np.nan_to_num(speed, nan=0.0) < BALL_STILL_MS)
+    frozen = slow & ball_idle
+    min_len = int(DEAD_MIN_S * FPS)
+    for a, b in run_lengths(frozen):
+        if b - a >= min_len:
+            score[a:b] += W_FROZEN * np.clip(calm[a:b], 0.0, 1.0)
+    return score
+
+
+def out_hold_dead_evidence(out, calm, n):
+    """After the ball is out, stay dead while players remain slow (throw-in/setup phase).
+
+    Football prior shared with baseline.py: once the ball has left the pitch the stoppage
+    continues through the slow regrouping, not only on the out frames themselves.
+    """
+    score = np.zeros(n)
+    slow = calm > 0.0
+    for a, b in run_lengths(out):
+        score[a:b] += W_OUT_HOLD
+        j = b
+        while j < n and slow[j]:
+            j += 1
+        if j > b:
+            score[b:j] += W_OUT_HOLD * np.clip(calm[b:j], 0.0, 1.0)
+    return score
 
 
 def tagging_dead_evidence(tags, speed, n):
@@ -283,6 +330,8 @@ def build_scores(atd, tags, halves, use_shape=False):
     fast = np.nan_to_num(speed, nan=0.0) > 3.0
 
     dead = (W_OUT * out + W_CALM * calm - W_BALL_FAST * fast
+            + frozen_dead_evidence(calm, speed, seen, n)
+            + out_hold_dead_evidence(out, calm, n)
             + tagging_dead_evidence(tags, speed, n)
             + pre_kickoff_evidence(tags, speed, halves, n))
 

@@ -284,15 +284,17 @@ It is a second, independent possession model built on tracking geometry, Smart T
 three-state Viterbi decoder (see `haeys/README.md` for details).
 
 **Why haeys is the candidate:**
-- On the official public 5-minute ground truth (first 5 minutes of play only, per organisers),
-  `haeys` scored higher on both ranking metrics: macroF1 0.8353 vs baseline 0.7115, spellF1
-  0.4970 vs baseline 0.4686.
-- On the complete gated match (199,319 frames), both pipelines produce format-valid output.
-  haeys produces fewer, longer possessions after short-spell merge (255 vs baseline 299,
-  mean 13.8 s vs 11.1 s). Soft control decay and gap-age interpolation weights are football priors.
-- Caveat: the public 5-minute slice has only 17 possessions, so the score gap is **not**
-  statistically significant (noise band ~0.35). The private full-match ground truth is unavailable,
-  so haeys is a candidate — not a proven winner.
+- Official scorer on the **public 5-minute window only** (pipeline check — rules forbid
+  training/tuning on it): haeys spellF1 **0.5935** / macroF1 **0.8667** vs baseline
+  0.4686 / 0.7115, and above all four organiser baselines (best organiser spellF1 0.4242).
+  Bootstrap 5–95% spellF1 bands still overlap baseline; 17 GT possessions cannot rank anyone.
+- Complete gated match (format-valid): haeys 242 possessions, mean 14.2 s; baseline 299,
+  mean 11.1 s. Agreement ~87%. Dead-ball enrichment (frozen ≥3 s, out-then-slow hold),
+  soft control falloff, gap-age interp weights, min-spell merge, and SWITCH_TEAM=12
+  (same 0.48 s prior as baseline `CONFIRM_FRAMES`) are football priors / CHALLENGE.md logic —
+  not fit on public GT.
+- Private full-match ground truth is unavailable. Organisers' full-match baseline to beat is
+  spellF1 0.2433 (`baseline_smooth50`). haeys is the current **candidate**, not a proven winner.
 
 Run haeys:
 ```bash
