@@ -173,6 +173,9 @@ Barca-FC-MTAH/
 ```
 
 These names come from `games.py`, so `games.py` is the one place to change them if the bundle ever differs.
+The first two real teams in the tactical metadata are Barcelona and Atletic Club; `baseline.py`
+maps those team IDs to `H` and `A`. Metadata slots belonging to referees or other non-players are
+ignored rather than being counted as the away team.
 
 ### 4.3 Or keep the data somewhere else (`MTAH_DATA_DIR`)
 
@@ -405,8 +408,8 @@ All values are football common sense. They were fixed without reference to any g
 | 2 | **Hysteresis** | Possession changes only after the other team controls the ball this many frames in a row. The change is then dated back to when their control began. Touches, deflections and loose balls leave the ball with the last team. | 12 frames (0.48 s) | `CONFIRM_FRAMES` |
 | 3 | **Ball not tracked** | While play is live, the last team keeps the ball | – | – |
 | 4a | **Dead ball: out** | Ball tracked outside the pitch by more than this (pitch coordinates run 0–1), plus the slow stretch right after it | 0.005 (≈0.5 m) | `OUT_MARGIN` |
-| 4b | **Dead ball: frozen game** | Median player speed below this… | 2.0 m/s | `SLOW_PLAYER_MS` |
-| | | …and the ball missing or moving slower than this… | 1.0 m/s | `BALL_STILL_MS` |
+| 4b | **Dead ball: frozen game** | Median player speed below this… | 1.0 m/s | `SLOW_PLAYER_MS` |
+| | | …and the tracked ball moving slower than this… | 1.0 m/s | `BALL_STILL_MS` |
 | | | …for at least this long | 3.0 s | `DEAD_MIN_S` |
 | 4c | **Dead ball: before a set piece** | Frames in the 2 s before a tagged `SET PIECES` instance, if players are slow | 2 s | in `dead_mask()` |
 | 4d | **Dead ball: 2nd-half start** | The second half is graded from frame 110,808 but kicks off at 113,742 (official FAQ). Everything before kickoff is `D`. | frame 113742 | `SECOND_HALF_KICKOFF` |

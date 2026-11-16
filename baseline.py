@@ -38,7 +38,6 @@ sys.path.insert(0, os.path.join(HERE, "starter"))
 from games import GAME, GAMES, require, source_frames, half_video_blocks  # noqa: E402
 
 # Team name used for the default output file name, <TEAM_NAME>.csv.
-# TODO: replace with the team name every member registered with.
 TEAM_NAME = "Vector"
 
 # ---------------- parameters (football priors, NOT tuned on ground truth) ----------------
@@ -47,10 +46,11 @@ CONTROL_RADIUS_M = 2.0      # a player this close to the ball can be playing it
 MARGIN_M = 1.0              # ...and must be this much closer than the nearest opponent
 CONFIRM_FRAMES = 12         # ~0.5 s of continuous control to confirm a change of possession
 OUT_MARGIN = 0.005          # ball this far outside the 0-1 pitch box counts as out (~0.5 m)
-SLOW_PLAYER_MS = 2.0        # median player speed below this = game looks stopped
+SLOW_PLAYER_MS = 1.0        # median player speed below this = game looks stopped
 BALL_STILL_MS = 1.0         # ball moving slower than this = not being played
 DEAD_MIN_S = 3.0            # a "frozen" stretch must last this long to be called dead
 MIN_SPELL_S = 2.0           # possessions shorter than this are merged away
+BALL_GAP_RESET_S = 1.0      # a longer missing-ball gap invalidates a pending change
 SECOND_HALF_KICKOFF = 113742  # FAQ.md: graded from 110808, all D until this kickoff
 TEAM_TAGS = {"barcelona": 0, "atletic club": 1, "athletic club": 1}
 
@@ -60,8 +60,13 @@ HOME, AWAY, NONE = 0, 1, -1
 def track_teams(meta_path):
     root = ET.parse(meta_path).getroot()
     team_ids = [t.get("id") for t in root.iter("Team")]
-    return np.array([HOME if p.get("teamId") == team_ids[0] else AWAY
-                     for p in root.iter("Player")], dtype=np.int8)
+    if len(team_ids) < 2:
+        raise ValueError("tracking metadata must contain two real teams")
+    first, second = team_ids[:2]
+    return np.array([
+        HOME if p.get("teamId") == first else AWAY if p.get("teamId") == second else NONE
+        for p in root.iter("Player")
+    ], dtype=np.int8)
 
 
 def read_atd(raw_path, n_frames, n_slots):
@@ -162,7 +167,7 @@ def nearest_details(px, py, bx, by, teams, pitch):
             away_slot, away_distance, away_x, away_y)
 
 
-def dead_mask(px, py, ps, bx, by, set_pieces, n):
+def dead_mask(px, py, ps, bx, by, ctrl, set_pieces, n):
     L, W = GAMES[GAME]["pitch"]
     ball_seen = ~np.isnan(bx)
     out = ball_seen & ((bx < -OUT_MARGIN) | (bx > 1 + OUT_MARGIN) |
@@ -175,7 +180,7 @@ def dead_mask(px, py, ps, bx, by, set_pieces, n):
         warnings.simplefilter("ignore", RuntimeWarning)
         med_speed = np.nanmedian(ps, axis=1)
     slow = np.nan_to_num(med_speed, nan=0.0) < SLOW_PLAYER_MS
-    ball_idle = ~ball_seen | (np.nan_to_num(bsp, nan=0.0) < BALL_STILL_MS)
+    ball_idle = ball_seen & (np.nan_to_num(bsp, nan=0.0) < BALL_STILL_MS)
     frozen = slow & ball_idle
     dead = out.copy()
     for a, b in run_lengths(frozen):
@@ -186,39 +191,62 @@ def dead_mask(px, py, ps, bx, by, set_pieces, n):
         lo = max(0, s - int(2 * FPS))
         seg = slice(lo, s)
         dead[seg] |= slow[seg]
-    # once the ball has gone out, the game stays dead while the players are still slow
+    # Once the ball has gone out, remain dead only until tracked play plausibly restarts.
+    # A missing ball is not itself evidence that play is frozen.
+    plausible_restart = ball_seen & ~out & (
+        (np.nan_to_num(bsp, nan=0.0) >= BALL_STILL_MS) |
+        (np.nan_to_num(med_speed, nan=0.0) >= SLOW_PLAYER_MS) |
+        (ctrl != NONE)
+    )
     for a, b in run_lengths(out):
         j = b
-        while j < n and slow[j]:
+        while j < n and slow[j] and not plausible_restart[j]:
             j += 1
         dead[a:j] = True
     return dead
 
 
-def label_half(start, stop, ctrl, nearest, dead, sp_team):
+def label_half(start, stop, ctrl, nearest, dead, sp_team, ball_seen):
     """Hysteresis state machine over one graded half. Returns codes 0/1/2 (H/A/D)."""
     out = np.full(stop - start, 2, np.int8)
-    current, cand, streak = NONE, NONE, 0
+    current, cand, streak, candidate_start = NONE, NONE, 0, NONE
+    pending_start = NONE
+    missing_ball = 0
+    max_gap = int(BALL_GAP_RESET_S * FPS)
     for i in range(start, stop):
         if dead[i]:
             out[i - start] = 2
-            current, cand, streak = NONE, NONE, 0   # new possession starts after the restart
+            current, cand, streak, candidate_start = NONE, NONE, 0, NONE
+            pending_start = NONE
+            missing_ball = 0
             continue
+        if not ball_seen[i]:
+            missing_ball += 1
+            if missing_ball >= max_gap:
+                cand, streak, candidate_start = NONE, 0, NONE
+        else:
+            missing_ball = 0
         if current == NONE:  # restart: seed from tag, else first control, else nearest
             seed = sp_team[i] if sp_team[i] != NONE else (ctrl[i] if ctrl[i] != NONE else nearest[i])
             if seed != NONE:
                 current = seed
+                if pending_start != NONE:
+                    out[pending_start - start:i + 1 - start] = current
+                    pending_start = NONE
+            elif pending_start == NONE:
+                pending_start = i
         c = ctrl[i]
         if c != NONE and c != current:
             streak = streak + 1 if c == cand else 1
             cand = c
+            if streak == 1:
+                candidate_start = i
             if streak >= CONFIRM_FRAMES:
                 # change confirmed: back-date it to when the new team first took control
-                j0 = i - start - streak + 1
-                out[j0:i - start] = c
-                current, cand, streak = c, NONE, 0
+                out[candidate_start - start:i - start] = c
+                current, cand, streak, candidate_start = c, NONE, 0, NONE
         elif c == current:
-            cand, streak = NONE, 0
+            cand, streak, candidate_start = NONE, 0, NONE
         out[i - start] = current if current != NONE else 2
     return out
 
@@ -287,6 +315,8 @@ def write_player_diagnostics(path, px, py, ps, teams):
         for frame in range(px.shape[0]):
             slots = np.flatnonzero(~np.isnan(px[frame]) & ~np.isnan(py[frame]))
             for slot in slots:
+                if teams[slot] == NONE:
+                    continue
                 writer.writerow([
                     frame, "{:.3f}".format(frame / FPS), int(slot),
                     "H" if teams[slot] == HOME else "A",
@@ -317,14 +347,16 @@ def main():
 
     ctrl, nearest = control_per_frame(px, py, bx, by, teams, GAMES[GAME]["pitch"])
     details = nearest_details(px, py, bx, by, teams, GAMES[GAME]["pitch"])
-    dead = dead_mask(px, py, ps, bx, by, set_pieces, n)
+    dead = dead_mask(px, py, ps, bx, by, ctrl, set_pieces, n)
 
     labels = np.full(n, "X", dtype="<U1")
     letters = np.array(["H", "A", "D"])
     for half, first, last in half_video_blocks(GAME):
-        codes = label_half(first, last + 1, ctrl, nearest, dead, sp_team)
         if half == 2:
-            codes[:max(0, SECOND_HALF_KICKOFF - first)] = 2
+            dead[first:min(last + 1, SECOND_HALF_KICKOFF)] = True
+        codes = label_half(
+            first, last + 1, ctrl, nearest, dead, sp_team, ~np.isnan(bx)
+        )
         codes = merge_short(codes, int(MIN_SPELL_S * FPS))
         labels[first:last + 1] = letters[codes]
 
