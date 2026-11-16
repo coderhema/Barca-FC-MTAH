@@ -1,5 +1,4 @@
 # --- match data: licensed for the competition only, NEVER commit ---
-data/
 *.mp4
 *.mkv
 *.avi
