@@ -15,11 +15,12 @@ Official challenge repository: <https://github.com/metrica-sports/more-than-a-ha
 4. [Getting the data](#4-getting-the-data)
 5. [Running it](#5-running-it)
 6. [Validating the output](#6-validating-the-output)
-7. [How the method works](#7-how-the-method-works)
-8. [Reproducibility](#8-reproducibility)
-9. [Troubleshooting / FAQ](#9-troubleshooting--faq)
-10. [Repository layout](#10-repository-layout)
-11. [Licence and credits](#11-licence-and-credits)
+7. [Results & Benchmarks](#7-results--benchmarks)
+8. [How the method works](#8-how-the-method-works)
+9. [Reproducibility](#9-reproducibility)
+10. [Troubleshooting / FAQ](#10-troubleshooting--faq)
+11. [Repository layout](#11-repository-layout)
+12. [Licence and credits](#12-licence-and-credits)
 
 ---
 
@@ -293,43 +294,11 @@ It is a second, independent possession model built on tracking geometry, Smart T
 three-state Viterbi decoder (see `haeys/README.md` for details).
 
 **Why haeys is the candidate:**
-- Official scorer on the **public 5-minute window only** (pipeline check — rules forbid
-  training/tuning on it): haeys spellF1 **0.5935** / macroF1 **0.8667** vs baseline
-  0.4686 / 0.7115, and above all four organiser baselines (best organiser spellF1 0.4242).
-  Bootstrap 5–95% spellF1 bands still overlap baseline; 17 GT possessions cannot rank anyone.
-- Complete gated match (format-valid): haeys 242 possessions, mean 14.2 s; baseline 299,
-  mean 11.1 s. Agreement ~87%. Dead-ball enrichment (frozen ≥3 s, out-then-slow hold),
-  soft control falloff, gap-age interp weights, min-spell merge, and SWITCH_TEAM=12
-  (same 0.48 s prior as baseline `CONFIRM_FRAMES`) are football priors / CHALLENGE.md logic —
-  not fit on public GT.
-- Private full-match ground truth is unavailable. Organisers' full-match baseline to beat is
-  spellF1 0.2433 (`baseline_smooth50`). haeys is the current **candidate**, not a proven winner.
-
-Run haeys:
-```bash
-pip install -r haeys/requirements.txt
-python haeys/run.py --team Vector --shape
-python evaluation/validate_submission.py haeys/out/Vector.csv
-```
-
-The Cavalry integration remains separate from this pipeline and affects visualization only.
-
-### 5.6 Candidate submission pipeline: `haeys`
-
-The `haeys` pipeline (`haeys/run.py`) is the **current candidate submission pipeline**.
-It is a second, independent possession model built on tracking geometry, Smart Tagging, and a
-three-state Viterbi decoder (see `haeys/README.md` for details).
-
-**Why haeys is the candidate:**
-- On the official public 5-minute ground truth (first 5 minutes of play only, per organisers),
-  `haeys` scored higher on both ranking metrics: macroF1 0.8353 vs baseline 0.7115, spellF1
-  0.4970 vs baseline 0.4686.
-- On the complete gated match (199,319 frames), both pipelines produce format-valid output.
-  They agree on 87.49% of frames; haeys produces fewer, slightly longer possessions (293 vs 299,
-  mean 11.9 s vs 11.1 s).
-- Caveat: the public 5-minute slice has only 17 possessions, so the score gap is **not**
-  statistically significant (noise band ~0.35). The private full-match ground truth is unavailable,
-  so haeys is a candidate — not a proven winner.
+- On the **public 5-minute ground truth** (pipeline check only, rules forbid training/tuning): haeys spellF1 **0.594** / macroF1 **0.867** vs baseline 0.473 / 0.573, above all organiser baselines.
+  Bootstrap 5–95% spellF1 bands: haeys [0.40, 0.78], baseline [0.30, 0.66]. 17 GT possessions — cannot rank.
+- Complete gated match (format-valid): haeys 242 possessions, mean 14.2 s; baseline 299, mean 11.1 s. Agreement ~87%.
+- Dead-ball enrichment (frozen ≥3 s, out-then-slow hold), soft control falloff, gap-age interp weights, min-spell merge, SWITCH_TEAM=12 (same 0.48 s prior as baseline `CONFIRM_FRAMES`) are football priors / CHALLENGE.md logic — not fit on public GT.
+- Private full-match ground truth unavailable. Organisers' full-match baseline to beat: spellF1 **0.243** (`baseline_smooth50`). haeys is the current **candidate**, not a proven winner.
 
 Run haeys:
 ```bash
@@ -371,7 +340,7 @@ Valid. Note this checks the format only -- it says nothing about whether the lab
 ```
 
 `X` is always 40,462 rows: these are the ungraded frames before kickoff, at half-time and after the final whistle.
-A failing file prints `FAIL` and one line explaining why (see [section 9](#9-troubleshooting--faq)).
+A failing file prints `FAIL` and one line explaining why (see [section 10](#10-troubleshooting--faq)).
 
 ### Optional: check against the public 5-minute window
 
@@ -394,7 +363,31 @@ It prints a scoreboard with `spellF1` (the ranking metric) and `macroF1` for eve
 
 ---
 
-## 7. How the method works
+## 7. Results & Benchmarks
+
+### 7.1 Public 5-minute ground truth (pipeline check only)
+
+| Pipeline | macroF1 | spellF1 (ranking) | spellF1@0.5 | alive/dead F1 | accuracy | possessions |
+|---|---:|---:|---:|---:|---:|---:|
+| **haeys `--shape` (candidate)** | **0.867** | **0.594** | **0.645** | **0.966** | **0.876** | 14 |
+| baseline.py (reference) | 0.573 | 0.473 | 0.485 | 0.898 | 0.728 | 16 |
+| organiser `baseline_smooth125` | ~0.58 | ~0.42 | — | — | — | — |
+| organiser `baseline_smooth50` | — | **0.243*** | — | — | — | — |
+
+*Organiser's published full-match baseline to beat (private GT). Public window is only 17 possessions; bootstrap 5–95% bands are wide ([0.40, 0.78] for haeys spellF1). **Cannot rank the competition.** Rules forbid training/tuning on these 5 minutes.
+
+### 7.2 Full-match structure (format validation, no private GT)
+
+| Pipeline | possessions | mean duration | H% | A% | D% | X% |
+|---|---:|---:|---:|---:|---:|---:|
+| **haeys `--shape`** | 242 | 14.2 s | 27.5% | 15.6% | 36.6% | 20.3% |
+| baseline.py | 299 | 11.1 s | 29.2% | 16.1% | 34.7% | 20.3% |
+
+Frame agreement between pipelines: **~87%**.
+
+---
+
+## 8. How the method works
 
 In plain words: **a team gets the ball when one of its players is clearly closest to it and stays
 there for half a second. It keeps the ball until the other team does the same, or the ball goes dead.**
@@ -435,7 +428,7 @@ homography, the broadcast data, any ground truth and any hand labels.
 
 ---
 
-## 8. Reproducibility
+## 9. Reproducibility
 
 - The algorithm has **no randomness**. With the same data and the pinned versions, `python baseline.py`
   produces a **byte-identical file** every run. You can check this with a checksum:
@@ -446,7 +439,7 @@ homography, the broadcast data, any ground truth and any hand labels.
 
 ---
 
-## 9. Troubleshooting / FAQ
+## 10. Troubleshooting / FAQ
 
 **`OSError: match data not found: …/tactical/BAR-ATH_tactical_atd.xml`**
 The script couldn't find the data. The message lists the exact paths it tried. Either unpack the bundle
@@ -490,7 +483,7 @@ No. The official rules say those 5 minutes are for pipeline checking only, not t
 
 ---
 
-## 10. Repository layout
+## 11. Repository layout
 
 | path | what it is | author |
 |---|---|---|
@@ -513,7 +506,7 @@ No. The official rules say those 5 minutes are for pipeline checking only, not t
 
 ---
 
-## 11. Licence and credits
+## 12. Licence and credits
 
 - Code in this repository: **MIT**, © 2026 Olugbemi Tolulope (see `LICENSE`).
 - `games.py`, `starter/load_smart_tagging.py`, `evaluation/validate_submission.py` and
