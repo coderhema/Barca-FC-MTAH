@@ -1,9 +1,11 @@
 # Barca-FC-MTAH
 
-Ball possession for every frame of a real football match, built for
+**Team Vector** — Ball possession for every frame of a real football match, built for
 **More than a Hack 2027 (Phase 1: Ball Possession)**, organised by Metrica Sports, FC Barcelona and
 Mobile World Capital Barcelona.
-Official challenge repository: <https://github.com/metrica-sports/more-than-a-hack-2027>
+
+🔗 Official challenge repository: <https://github.com/metrica-sports/more-than-a-hack-2027>  
+📄 Technical document: **`TD-Team Vector.pdf`**
 
 ---
 
@@ -49,10 +51,15 @@ frame,label
 | `D` | **Dead ball**: the ball is not in play (out, foul, stoppage, …) |
 | `X` | **No answer**. Used here for frames that are not graded (before kickoff, half-time, after the final whistle) |
 
-**What this repo does.** `baseline.py` reads the provided tracking data and tags, decides a label
-for every frame using simple football rules (see [section 7](#7-how-the-method-works)), and writes the
-CSV. `evaluation/validate_submission.py` is the organisers' own checker, included so you can confirm
+**What this repo does.** This repository contains two pipelines:
+
+- **`haeys` (candidate submission)** — evidence scoring + three-state Viterbi decoding with an optional shape model. Writes `haeys/out/Vector.csv`. See `haeys/README.md` for details.
+- **`baseline.py` (reference)** — simple rule-based possession detection for comparison.
+
+`evaluation/validate_submission.py` is the organisers' own checker, included so you can confirm
 the file is well-formed before submitting it.
+
+The technical document describing the method is **`TD-Team Vector.pdf`** in this repository.
 
 ---
 
@@ -66,12 +73,15 @@ cd Barca-FC-MTAH
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -r haeys/requirements.txt
 # put the match data in ./data/tactical/ (see section 4)
-python baseline.py
-python evaluation/validate_submission.py Vector.csv
+python haeys/run.py --team Vector --shape
+python evaluation/validate_submission.py haeys/out/Vector.csv
 ```
 
 On Windows, use `py -3.13 -m venv .venv` and `.venv\Scripts\activate` instead (see section 3).
+
+> **Submission file:** `haeys/out/Vector.csv` (199,319 rows, format-validated).
 
 ---
 
@@ -210,104 +220,59 @@ export MTAH_DATA_DIR=/path/to/mtah2027
 
 ## 5. Running it
 
-### 5.1 Set your team name
+### 5.1 Candidate submission pipeline: `haeys` (recommended)
 
-The team name is set near the top of `baseline.py`. It must match the name **every member registered with**, which for us is "Vector":
+The `haeys` pipeline is the **candidate submission pipeline**. It uses evidence scoring + Viterbi
+decoding with an optional shape model (`--shape` flag).
 
-```python
-TEAM_NAME = "Vector"
+**Install dependencies (once):**
+```bash
+pip install -r haeys/requirements.txt   # numpy==2.5.3
 ```
 
-The organisers ask for the CSV to be named after the team (`<team_name>.csv`), and this is used as the
-default file name.
+**Run:**
+```bash
+python haeys/run.py --team Vector --shape
+```
 
-### 5.2 Run
+Expected output:
+```
+reading tactical ATD … cached in haeys/out/cache/
+building evidence …
+Viterbi decoding …
+wrote haeys/out/Vector.csv  (H: …, A: …, D: …, X: 40462)
+```
 
-With the venv active, from the repo folder:
+First run parses the ATD (~25 s) and caches it in `haeys/out/cache/`; subsequent runs take a few seconds.
+The run is deterministic and the output filename does not affect the content.
+
+### 5.2 Reference baseline: `baseline.py`
+
+For comparison, the simple rule-based pipeline:
 
 ```bash
 python baseline.py
 ```
 
-Expected console output (numbers are illustrative):
+Writes `Vector.csv` next to the script. Uses the same `TEAM_NAME = "Vector"` constant at the top.
 
-```
-reading tracking (46 slots) ...
-  ball tracked on 56.9% of frames
-wrote /…/Barca-FC-MTAH/YourTeam.csv {'A': …, 'D': …, 'H': …, 'X': …}
-next: python evaluation/validate_submission.py /…/Barca-FC-MTAH/YourTeam.csv
-```
+### 5.3 Export diagnostics for visualization (Cavalry)
 
-- **"46 slots"**: the tracking has 46 track slots (DATA.md).
-- **"ball tracked on … %"**: DATA.md says the ball is present on 56.9% of all frames
-  (113,488 / 199,319), so you should see about **57%**. A very different number means the data
-  didn't load correctly.
-- If the Smart Tagging file is missing, you'll also see a line starting `(no Smart Tagging used: …`
-  and the run continues without it. **The result then differs**, so make sure the file is in place before producing the
-  file you submit.
-
-### 5.3 Where the CSV goes
-
-By default it is written **next to `baseline.py`** as `<TEAM_NAME>.csv`. To write somewhere else:
+Both pipelines export Cavalry-friendly CSVs under `viz/`:
 
 ```bash
-python baseline.py --out results/my_run.csv
-```
-
-Missing folders in the `--out` path are created automatically.
-
-### 5.4 How long it takes
-
-The script reads the 199,319-line tracking file once in plain Python, then does the rest with numpy.
-Expect a few seconds to a couple of minutes depending on your computer. It needs a few hundred MB of
-free memory.
-
-### 5.5 Export diagnostics for visualization (Cavalry)
-
-Both pipelines can export the same Cavalry-friendly CSVs under `viz/`:
-
-```bash
-# candidate (haeys) — preferred for review
+# haeys (candidate) — preferred for review
 python haeys/run.py --team Vector --shape --diagnostics viz
 
-# reference baseline
+# baseline (reference)
 python baseline.py --out Vector.csv --diagnostics viz
 ```
 
-This writes:
+Writes:
+- `viz/frames.csv`: one row per frame with ball position, nearest players, distances, control evidence, dead-ball state, final `label`. haeys also adds `score_H` / `score_A` / `score_D` (Viterbi emission scores).
+- `viz/players.csv`: tracked player positions in long form (`frame`, `slot`, `team`, `x`, `y`, `speed_m_s`).
 
-- `viz/frames.csv`: one row per frame with ball position, nearest home/away player,
-  distances, control evidence, dead-ball state and final `label`. haeys also adds
-  `score_H` / `score_A` / `score_D` (Viterbi emission scores) for scrubbing evidence;
-- `viz/players.csv`: tracked player positions in long form (`frame`, `slot`, `team`, `x`, `y`,
-  `speed_m_s`).
-
-Coordinates are **normalised pitch coordinates** (0–1), matching the ATD export. Use `frame` or
-`time_s` as the Cavalry timeline, draw players from `players.csv` and the ball from `frames.csv`,
-colour by `label` (H/A/D/X). These files are diagnostics only (gitignored `*.csv`); submit
-`haeys/out/Vector.csv`.
-
-### 5.6 Candidate submission pipeline: `haeys`
-
-The `haeys` pipeline (`haeys/run.py`) is the **current candidate submission pipeline**.
-It is a second, independent possession model built on tracking geometry, Smart Tagging, and a
-three-state Viterbi decoder (see `haeys/README.md` for details).
-
-**Why haeys is the candidate:**
-- On the **public 5-minute ground truth** (pipeline check only, rules forbid training/tuning): haeys spellF1 **0.594** / macroF1 **0.867** vs baseline 0.473 / 0.573, above all organiser baselines.
-  Bootstrap 5–95% spellF1 bands: haeys [0.40, 0.78], baseline [0.30, 0.66]. 17 GT possessions — cannot rank.
-- Complete gated match (format-valid): haeys 242 possessions, mean 14.2 s; baseline 299, mean 11.1 s. Agreement ~87%.
-- Dead-ball enrichment (frozen ≥3 s, out-then-slow hold), soft control falloff, gap-age interp weights, min-spell merge, SWITCH_TEAM=12 (same 0.48 s prior as baseline `CONFIRM_FRAMES`) are football priors / CHALLENGE.md logic — not fit on public GT.
-- Private full-match ground truth unavailable. Organisers' full-match baseline to beat: spellF1 **0.243** (`baseline_smooth50`). haeys is the current **candidate**, not a proven winner.
-
-Run haeys:
-```bash
-pip install -r haeys/requirements.txt
-python haeys/run.py --team Vector --shape
-python evaluation/validate_submission.py haeys/out/Vector.csv
-```
-
-The Cavalry integration remains separate from this pipeline and affects visualization only.
+Coordinates are **normalised pitch coordinates** (0–1). These files are diagnostics only (gitignored `*.csv`); **submit `haeys/out/Vector.csv`**.
 
 ---
 
@@ -363,7 +328,21 @@ It prints a scoreboard with `spellF1` (the ranking metric) and `macroF1` for eve
 
 ---
 
-## 7. Results & Benchmarks
+## 7. Submission Deliverables
+
+Per the challenge rules (RULES.md, FAQ.md), the required deliverables for Phase 1 are:
+
+| Deliverable | File / Location | Status |
+|---|---|---|
+| **Submission CSV** | `haeys/out/Vector.csv` (199,319 rows, format-validated) | ✅ Ready |
+| **Code repository** | This GitHub repo (`coderhema/Barca-FC-MTAH`) | ✅ Public |
+| **Technical document** | `TD-Team Vector.pdf` (in repo root) | ✅ Ready |
+
+All parameters are football priors or measured on external open data (SkillCorner). **No parameters were tuned on the competition data or the public 5-minute ground truth**, in compliance with the rules clarification.
+
+---
+
+## 8. Results & Benchmarks
 
 ### 7.1 Public 5-minute ground truth (pipeline check only)
 
@@ -387,7 +366,7 @@ Frame agreement between pipelines: **~87%**.
 
 ---
 
-## 8. How the method works
+## 9. How the method works
 
 In plain words: **a team gets the ball when one of its players is clearly closest to it and stays
 there for half a second. It keeps the ball until the other team does the same, or the ball goes dead.**
